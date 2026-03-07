@@ -1,0 +1,136 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Assets — forklifts, workers, anything that moves
+model Asset {
+  id         String     @id @default(uuid())
+  name       String
+  type       AssetType
+  zone_id    String?
+  pos_x      Float
+  pos_y      Float
+  pos_z      Float
+  heading    Float
+  status     AssetStatus @default(ACTIVE)
+  created_at DateTime    @default(now())
+
+  zone       Zone?      @relation(fields: [zone_id], references: [id])
+  telemetry  TelemetrySnapshot[]
+  events     Event[]
+}
+
+enum AssetType {
+  FORKLIFT
+  WORKER
+}
+
+enum AssetStatus {
+  ACTIVE
+  IDLE
+  ERROR
+}
+
+// Zones — physical areas of the yard
+model Zone {
+  id            String     @id @default(uuid())
+  name          String
+  type          ZoneType
+  boundary_json String // Stores JSON array of coordinates representing boundary
+  color_hex     String
+  is_exclusion  Boolean    @default(false)
+  created_at    DateTime   @default(now())
+
+  assets        Asset[]
+  events        Event[]
+}
+
+enum ZoneType {
+  SCRAP
+  LOADING
+  PARKING
+  EXCLUSION
+}
+
+// TelemetrySnapshots — position log, every second per asset
+model TelemetrySnapshot {
+  id         String   @id @default(uuid())
+  asset_id   String
+  pos_x      Float
+  pos_y      Float
+  pos_z      Float
+  heading    Float
+  timestamp  DateTime @default(now())
+
+  asset      Asset    @relation(fields: [asset_id], references: [id])
+
+  // Required by Prisma for creating composite block indexes
+  @@index([asset_id, timestamp])
+}
+
+// Events — discrete things that happen
+model Event {
+  id            String    @id @default(uuid())
+  asset_id      String?
+  zone_id       String?
+  event_type    EventType
+  severity      Severity
+  pos_x         Float
+  pos_y         Float
+  timestamp     DateTime  @default(now())
+  metadata_json String? // JSON metadata
+
+  asset         Asset?    @relation(fields: [asset_id], references: [id])
+  zone          Zone?     @relation(fields: [zone_id], references: [id])
+  alert_logs    AlertLog[]
+}
+
+enum EventType {
+  OBSTACLE
+  REROUTE
+  BREACH
+  IDLE
+}
+
+enum Severity {
+  LOW
+  MED
+  HIGH
+}
+
+// AlertLog — operator-facing alerts
+model AlertLog {
+  id               String    @id @default(uuid())
+  event_id         String
+  message          String
+  is_acknowledged  Boolean   @default(false)
+  acknowledged_by  String?   // User ID
+  acknowledged_at  DateTime?
+  created_at       DateTime  @default(now())
+
+  event            Event     @relation(fields: [event_id], references: [id])
+  user             User?     @relation(fields: [acknowledged_by], references: [id])
+}
+
+// Users — auth + roles
+model User {
+  id              String   @id @default(uuid())
+  name            String
+  email           String   @unique
+  hashed_password String
+  role            Role     @default(VIEWER)
+  created_at      DateTime @default(now())
+
+  alerts_acked    AlertLog[]
+}
+
+enum Role {
+  ADMIN
+  OPERATOR
+  VIEWER
+}
