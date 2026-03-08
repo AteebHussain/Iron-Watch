@@ -49,7 +49,7 @@ importers:
         specifier: ^1.2.0
         version: 1.2.0(@types/react@19.2.14)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@ironwatch/db':
-        specifier: workspace:*
+        specifier: file:../../packages/db
         version: link:../../packages/db
       '@react-three/drei':
         specifier: ^10.7.7
