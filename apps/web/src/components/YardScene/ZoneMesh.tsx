@@ -2,31 +2,51 @@
 
 import { Text } from "@react-three/drei";
 
+// ─── Zone type from Prisma ───────────────────────────────────
+interface Zone {
+  id: string;
+  name: string;
+  type: string;
+  boundary_json: string;
+  color_hex: string;
+  is_exclusion: boolean;
+  bounds_x_min?: number;
+  bounds_x_max?: number;
+  bounds_y_min?: number;
+  bounds_y_max?: number;
+}
+
 interface ZoneMeshProps {
-  zones: any[];
+  zones: Zone[];
+}
+
+/** Maps zone type to a visually distinct, muted color */
+function getZoneColor(zoneType: string): string {
+  switch (zoneType) {
+    case "EXCLUSION": return "#ef4444"; // red
+    case "PARKING":   return "#3b82f6"; // blue
+    case "LOADING":   return "#22c55e"; // green
+    case "SCRAP":     return "#71717a"; // grey
+    default:          return "#a1a1aa"; // fallback zinc
+  }
 }
 
 export function ZoneMesh({ zones }: ZoneMeshProps) {
   return (
     <group>
       {zones.map((zone) => {
-        // Calculate center for text placement
-        const centerX = (zone.bounds_x_min + zone.bounds_x_max) / 2;
-        const centerZ = (zone.bounds_y_min + zone.bounds_y_max) / 2;
+        const centerX = ((zone.bounds_x_min ?? 0) + (zone.bounds_x_max ?? 0)) / 2;
+        const centerZ = ((zone.bounds_y_min ?? 0) + (zone.bounds_y_max ?? 0)) / 2;
         
-        // Calculate dimensions
-        const width = zone.bounds_x_max - zone.bounds_x_min;
-        const depth = zone.bounds_y_max - zone.bounds_y_min;
-        const height = 10; // Taller box for visibility
+        const width = (zone.bounds_x_max ?? 0) - (zone.bounds_x_min ?? 0);
+        const depth = (zone.bounds_y_max ?? 0) - (zone.bounds_y_min ?? 0);
+        const height = 10;
 
-        // Color based on type
-        const color = zone.type === "EXCLUSION" ? "#ef4444" 
-                    : zone.type === "PARKING" ? "#3b82f6" 
-                    : "#22c55e"; // LOADING
+        const color = getZoneColor(zone.type);
 
         return (
           <group key={zone.id}>
-            {/* The transparent boundary box */}
+            {/* Semi-transparent boundary volume */}
             <mesh position={[centerX, height / 2, centerZ]}>
               <boxGeometry args={[width, height, depth]} />
               <meshStandardMaterial 
@@ -37,7 +57,7 @@ export function ZoneMesh({ zones }: ZoneMeshProps) {
               />
             </mesh>
 
-            {/* The outline border on the floor */}
+            {/* Floor outline border */}
             <mesh position={[centerX, 0.05, centerZ]} rotation={[-Math.PI / 2, 0, 0]}>
                <planeGeometry args={[width, depth]} />
                <meshBasicMaterial 
@@ -48,7 +68,7 @@ export function ZoneMesh({ zones }: ZoneMeshProps) {
                />
             </mesh>
 
-            {/* Floating text label for the zone */}
+            {/* Floating text label */}
             <Text
               position={[centerX, height + 1, centerZ]}
               color={color}

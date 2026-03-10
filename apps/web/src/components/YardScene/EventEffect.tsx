@@ -4,6 +4,7 @@ import { useRef, useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { YardSnapshot } from "@/hooks/useSocket";
+import { EVENT_EFFECT_LIFESPAN_S } from "@/lib/constants";
 
 interface EventEffectProps {
   snapshotRef: React.MutableRefObject<YardSnapshot | null>;
@@ -20,29 +21,30 @@ export function EventEffect({ snapshotRef }: EventEffectProps) {
   const groupRef = useRef<THREE.Group>(null);
   const activeEffects = useRef<Map<string, ActiveEffect>>(new Map());
   
-  // Basic geometry/materials to reuse
-  const obstacleGeo = useMemo(() => new THREE.TorusGeometry(2, 0.2, 16, 100), []);
-  const obstacleMat = useMemo(() => new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8 }), []);
+  // Shared geometry/materials — reused across all effect instances
+  const obstacleGeometry = useMemo(() => new THREE.TorusGeometry(2, 0.2, 16, 100), []);
+  const obstacleMaterial = useMemo(() => new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8 }), []);
 
   useFrame(({ clock }) => {
     if (!snapshotRef.current || !groupRef.current) return;
-    const now = clock.getElapsedTime();
+    const elapsedTime = clock.getElapsedTime();
     const events = snapshotRef.current.events || [];
-    const currentIds = new Set(events.map(e => e.id));
+    const currentEventIds = new Set(events.map(e => e.id));
 
-    // Cleanup finished/removed events
+    // Cleanup expired or removed effects
     activeEffects.current.forEach((effect, id) => {
-      if (!currentIds.has(id) || now - effect.startTime > 3) { // 3s lifespan
+      const age = elapsedTime - effect.startTime;
+      if (!currentEventIds.has(id) || age > EVENT_EFFECT_LIFESPAN_S) {
         const child = groupRef.current?.getObjectByName(`event-${id}`);
         if (child) groupRef.current?.remove(child);
         activeEffects.current.delete(id);
       }
     });
 
-    // Spawn new events
+    // Spawn new event effects
     events.forEach(event => {
       if (!activeEffects.current.has(event.id) && event.type === 'OBSTACLE') {
-        const effectMesh = new THREE.Mesh(obstacleGeo, obstacleMat.clone());
+        const effectMesh = new THREE.Mesh(obstacleGeometry, obstacleMaterial.clone());
         effectMesh.name = `event-${event.id}`;
         effectMesh.position.set(event.pos_x, event.pos_y + 0.5, event.pos_z);
         effectMesh.rotation.x = Math.PI / 2;
@@ -52,19 +54,19 @@ export function EventEffect({ snapshotRef }: EventEffectProps) {
           id: event.id,
           type: event.type,
           pos: [event.pos_x, event.pos_y, event.pos_z],
-          startTime: now
+          startTime: elapsedTime,
         });
       }
     });
 
-    // Animate active effects (expanding ring)
+    // Animate active effects (expanding + fading ring)
     activeEffects.current.forEach((effect) => {
       const child = groupRef.current?.getObjectByName(`event-${effect.id}`) as THREE.Mesh;
       if (child && effect.type === "OBSTACLE") {
-        const age = now - effect.startTime;
-        const scale = 1 + (age * 2); // Expand outward
+        const age = elapsedTime - effect.startTime;
+        const scale = 1 + (age * 2);
         child.scale.set(scale, scale, scale);
-        (child.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.8 - (age * 0.3)); // Fade out
+        (child.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.8 - (age * 0.3));
       }
     });
   });

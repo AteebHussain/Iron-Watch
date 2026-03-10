@@ -1,93 +1,112 @@
+import { SimulationAsset, SimulationEvent, YardSnapshot } from "./types";
 import { EventGenerator } from "./EventGenerator";
 import { PathFinder } from "./PathFinder";
 import { randomUUID } from "crypto";
+import {
+  SIMULATION_TICK_INTERVAL_MS,
+  ASSET_COUNT_FORKLIFTS,
+  ASSET_COUNT_WORKERS,
+  YARD_BOUNDARY,
+  YARD_DESTINATION_RANGE,
+  PATH_CURVE_STEPS,
+} from "./constants";
 
 export class SimulationEngine {
-  private updateClients: (snapshot: any) => void;
-  // Hold active asset state
-  private assets: any[] = [];
-  
-  constructor(updateClientsCallback: (snapshot: any) => void) {
-    this.updateClients = updateClientsCallback;
-    this.initDummyAssets();
+  private broadcastSnapshot: (snapshot: YardSnapshot) => void;
+  private assets: SimulationAsset[] = [];
+
+  constructor(broadcastCallback: (snapshot: YardSnapshot) => void) {
+    this.broadcastSnapshot = broadcastCallback;
+    this.bootstrapAssets();
   }
 
-  private initDummyAssets() {
-    // For now we bootstrap dummy assets since there's no DB connected yet
-    for (let i = 0; i < 5; i++) {
-        this.assets.push({
-            id: randomUUID(),
-            type: "FORKLIFT",
-            status: "ACTIVE",
-            pos_x: Math.random() * 40 - 20,
-            pos_y: 0,
-            pos_z: Math.random() * 40 - 20,
-            heading: 0,
-            pathNode: 0,
-            currentPath: []
-        });
-    }
-    for (let i = 0; i < 5; i++) {
+  /** Seed the yard with initial assets */
+  private bootstrapAssets(): void {
+    for (let i = 0; i < ASSET_COUNT_FORKLIFTS; i++) {
       this.assets.push({
-          id: randomUUID(),
-          type: "WORKER",
-          status: "ACTIVE",
-          pos_x: Math.random() * 40 - 20,
-          pos_y: 0,
-          pos_z: Math.random() * 40 - 20,
-          heading: 0,
-          pathNode: 0,
-          currentPath: []
+        id: randomUUID(),
+        type: "FORKLIFT",
+        status: "ACTIVE",
+        name: `Forklift-${String(i + 1).padStart(2, "0")}`,
+        pos_x: Math.random() * YARD_BOUNDARY * 2 - YARD_BOUNDARY,
+        pos_y: 0,
+        pos_z: Math.random() * YARD_BOUNDARY * 2 - YARD_BOUNDARY,
+        heading: 0,
+        pathNode: 0,
+        currentPath: [],
       });
-  }
+    }
+
+    for (let i = 0; i < ASSET_COUNT_WORKERS; i++) {
+      this.assets.push({
+        id: randomUUID(),
+        type: "WORKER",
+        status: "ACTIVE",
+        name: `Worker-${String(i + 1).padStart(2, "0")}`,
+        pos_x: Math.random() * YARD_BOUNDARY * 2 - YARD_BOUNDARY,
+        pos_y: 0,
+        pos_z: Math.random() * YARD_BOUNDARY * 2 - YARD_BOUNDARY,
+        heading: 0,
+        pathNode: 0,
+        currentPath: [],
+      });
+    }
   }
 
-  public start() {
-    setInterval(() => {
-      this.tick();
-    }, 1000);
+  /** Start the simulation tick loop */
+  public start(): void {
+    setInterval(async () => {
+      try {
+        this.tick();
+      } catch (error) {
+        console.error("[SimulationEngine] Tick failed:", error);
+      }
+    }, SIMULATION_TICK_INTERVAL_MS);
   }
 
-  private tick() {
+  /** Single simulation frame — moves assets, generates events, broadcasts */
+  private tick(): void {
     const events = EventGenerator.generateEvents(this.assets);
 
     for (const asset of this.assets) {
-        if (asset.currentPath.length === 0 || asset.pathNode >= asset.currentPath.length - 1) {
-            // Need a new path
-            const dest = {
-                x: Math.random() * 80 - 40,
-                y: 0,
-                z: Math.random() * 80 - 40
-            };
-            asset.currentPath = PathFinder.generateCurve(
-                { x: asset.pos_x, y: asset.pos_y, z: asset.pos_z },
-                dest,
-                20 // 20 steps / 10 seconds approx travel time
-            );
-            asset.pathNode = 0;
-        }
+      // Assign a new bezier path if the current one is exhausted
+      if (asset.currentPath.length === 0 || asset.pathNode >= asset.currentPath.length - 1) {
+        const destination = {
+          x: Math.random() * YARD_DESTINATION_RANGE * 2 - YARD_DESTINATION_RANGE,
+          y: 0,
+          z: Math.random() * YARD_DESTINATION_RANGE * 2 - YARD_DESTINATION_RANGE,
+        };
+        asset.currentPath = PathFinder.generateCurve(
+          { x: asset.pos_x, y: asset.pos_y, z: asset.pos_z },
+          destination,
+          PATH_CURVE_STEPS
+        );
+        asset.pathNode = 0;
+      }
 
-        const nextStep = asset.currentPath[asset.pathNode];
-        asset.pos_x = nextStep.x;
-        asset.pos_z = nextStep.z; // Movement on the ground plane (XZ)
-        asset.heading = nextStep.heading;
-        asset.pathNode++;
+      // Advance one step along the path
+      const nextStep = asset.currentPath[asset.pathNode];
+      asset.pos_x = nextStep.x;
+      asset.pos_z = nextStep.z;
+      asset.heading = nextStep.heading;
+      asset.pathNode++;
     }
 
-    // Emit via socket
-    this.updateClients({
-        assets: this.assets.map(a => ({
-            id: a.id,
-            type: a.type,
-            status: a.status,
-            pos_x: a.pos_x,
-            pos_y: a.pos_y,
-            pos_z: a.pos_z,
-            heading: a.heading
-        })),
-        events
-    });
+    // Broadcast the snapshot to all connected clients
+    const snapshot: YardSnapshot = {
+      assets: this.assets.map((asset) => ({
+        id: asset.id,
+        type: asset.type,
+        status: asset.status,
+        name: asset.name,
+        pos_x: asset.pos_x,
+        pos_y: asset.pos_y,
+        pos_z: asset.pos_z,
+        heading: asset.heading,
+      })),
+      events,
+    };
 
-    // TODO: DB batch insert for telemetry
+    this.broadcastSnapshot(snapshot);
   }
 }

@@ -3,8 +3,14 @@
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { Html, Text, Line } from "@react-three/drei";
+import { Text, Line } from "@react-three/drei";
 import { YardSnapshot } from "@/hooks/useSocket";
+import {
+  ASSET_LERP_SPEED,
+  ASSET_ROTATION_SLERP_SPEED,
+  PATH_HISTORY_MAX_POINTS,
+  PATH_MIN_DISTANCE_THRESHOLD,
+} from "@/lib/constants";
 
 interface AssetMeshProps {
   snapshotRef: React.MutableRefObject<YardSnapshot | null>;
@@ -31,25 +37,25 @@ export function AssetMesh({ snapshotRef }: AssetMeshProps) {
         
         if (asset.type === "FORKLIFT") {
           const bodyGeom = new THREE.BoxGeometry(2, 1.5, 3);
-          const mat = new THREE.MeshStandardMaterial({ color: 0xffcc00 });
-          const bodyMesh = new THREE.Mesh(bodyGeom, mat);
+          const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xffcc00 });
+          const bodyMesh = new THREE.Mesh(bodyGeom, bodyMaterial);
           bodyMesh.position.y = 0.75;
           bodyMesh.castShadow = true;
           group.add(bodyMesh);
 
           const mastGeom = new THREE.CylinderGeometry(0.2, 0.2, 3);
-          const mastMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
-          const mastMesh = new THREE.Mesh(mastGeom, mastMat);
+          const mastMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+          const mastMesh = new THREE.Mesh(mastGeom, mastMaterial);
           mastMesh.position.set(0, 1.5, 1.5);
           mastMesh.castShadow = true;
           group.add(mastMesh);
         } else if (asset.type === "WORKER") {
-          const capGeom = new THREE.CapsuleGeometry(0.4, 0.8, 4, 8);
-          const mat = new THREE.MeshStandardMaterial({ color: 0xff6600 });
-          const capMesh = new THREE.Mesh(capGeom, mat);
-          capMesh.position.y = 0.8;
-          capMesh.castShadow = true;
-          group.add(capMesh);
+          const capsuleGeom = new THREE.CapsuleGeometry(0.4, 0.8, 4, 8);
+          const workerMaterial = new THREE.MeshStandardMaterial({ color: 0xff6600 });
+          const capsuleMesh = new THREE.Mesh(capsuleGeom, workerMaterial);
+          capsuleMesh.position.y = 0.8;
+          capsuleMesh.castShadow = true;
+          group.add(capsuleMesh);
         }
 
         groupRef.current?.add(group);
@@ -57,10 +63,11 @@ export function AssetMesh({ snapshotRef }: AssetMeshProps) {
         assetData = meshesRef.current[asset.id];
       }
 
-      // Smooth Position Lerp
-      assetData.group.position.lerp(new THREE.Vector3(asset.pos_x, asset.pos_y, asset.pos_z), 0.15);
+      // Smooth position interpolation (lerp)
+      const targetPosition = new THREE.Vector3(asset.pos_x, asset.pos_y, asset.pos_z);
+      assetData.group.position.lerp(targetPosition, ASSET_LERP_SPEED);
 
-      // Track path history (keep last 20 points)
+      // Track path history (keep last N points for trail rendering)
       if (!pathHistoryRef.current[asset.id]) {
         pathHistoryRef.current[asset.id] = [];
       }
@@ -68,20 +75,20 @@ export function AssetMesh({ snapshotRef }: AssetMeshProps) {
       const currentPos = new THREE.Vector3(assetData.group.position.x, 0.1, assetData.group.position.z);
       
       // Only push if moved significantly to avoid tiny jitter segments
-      if (history.length === 0 || history[history.length - 1].distanceTo(currentPos) > 0.5) {
+      if (history.length === 0 || history[history.length - 1].distanceTo(currentPos) > PATH_MIN_DISTANCE_THRESHOLD) {
         history.push(currentPos);
-        if (history.length > 20) {
-          history.shift(); // Remove oldest point
+        if (history.length > PATH_HISTORY_MAX_POINTS) {
+          history.shift();
         }
       }
 
-      // Smooth Rotation Slerp
+      // Smooth rotation interpolation (slerp)
       const targetRotation = new THREE.Euler(0, asset.heading, 0);
       const targetQuaternion = new THREE.Quaternion().setFromEuler(targetRotation);
-      assetData.group.quaternion.slerp(targetQuaternion, 0.15);
+      assetData.group.quaternion.slerp(targetQuaternion, ASSET_ROTATION_SLERP_SPEED);
     });
 
-    // Cleanup stale assets
+    // Cleanup stale assets that no longer exist in the snapshot
     const currentIds = new Set(assets.map((a) => a.id));
     Object.keys(meshesRef.current).forEach((id) => {
       if (!currentIds.has(id)) {
@@ -94,10 +101,7 @@ export function AssetMesh({ snapshotRef }: AssetMeshProps) {
 
   return (
     <group ref={groupRef}>
-      {/* 
-        We use React to map the state to floating text labels, since pure Three.js
-        groups don't easily compose with Drei's <Text> component dynamically in a useFrame block.
-      */}
+      {/* Floating name labels above each asset */}
       {snapshotRef.current?.assets.map((asset) => (
         <group key={`label-${asset.id}`} position={[asset.pos_x, asset.pos_y + (asset.type === 'FORKLIFT' ? 3 : 2.5), asset.pos_z]}>
            <Text
@@ -116,12 +120,11 @@ export function AssetMesh({ snapshotRef }: AssetMeshProps) {
         </group>
       ))}
 
-      {/* Render Trail Lines */}
+      {/* Trail lines showing recent path history */}
       {snapshotRef.current?.assets.map((asset) => {
         const history = pathHistoryRef.current[asset.id];
         if (!history || history.length < 2) return null;
         
-        // Convert history vectors to flat array of coordinates required by Line
         const points = history.map(p => [p.x, p.y, p.z] as [number, number, number]);
 
         return (

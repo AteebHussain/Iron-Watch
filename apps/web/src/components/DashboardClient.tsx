@@ -4,14 +4,58 @@ import { useSocket } from "@/hooks/useSocket";
 import { SceneBuilder } from "@/components/YardScene/SceneBuilder";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Activity } from "lucide-react";
+import { AlertTriangle, Activity, Wifi, WifiOff, Loader2 } from "lucide-react";
+import type { ConnectionStatus } from "@/lib/constants";
+
+// ─── Zone type from Prisma (passed from Server Component) ────
+interface Zone {
+  id: string;
+  name: string;
+  type: string;
+  boundary_json: string;
+  color_hex: string;
+  is_exclusion: boolean;
+  bounds_x_min?: number;
+  bounds_x_max?: number;
+  bounds_y_min?: number;
+  bounds_y_max?: number;
+}
 
 interface DashboardClientProps {
-  zones: any[];
+  zones: Zone[];
+}
+
+function ConnectionBadge({ status }: { status: ConnectionStatus }) {
+  const config = {
+    connected: {
+      label: "Live",
+      className: "bg-emerald-600 text-white",
+      icon: <Wifi className="h-3 w-3 mr-1" />,
+    },
+    reconnecting: {
+      label: "Reconnecting...",
+      className: "bg-amber-600 text-white animate-pulse",
+      icon: <Loader2 className="h-3 w-3 mr-1 animate-spin" />,
+    },
+    disconnected: {
+      label: "Disconnected",
+      className: "bg-red-700 text-white",
+      icon: <WifiOff className="h-3 w-3 mr-1" />,
+    },
+  };
+
+  const { label, className, icon } = config[status];
+
+  return (
+    <Badge variant="default" className={`${className} flex items-center`}>
+      {icon}
+      {label}
+    </Badge>
+  );
 }
 
 export function DashboardClient({ zones }: DashboardClientProps) {
-  const { isConnected, snapshotRef, latestEvents } = useSocket();
+  const { connectionStatus, snapshotRef, latestEvents } = useSocket();
 
   return (
     <main className="flex flex-col md:flex-row h-screen w-screen overflow-hidden bg-zinc-950 text-slate-200 font-sans">
@@ -22,9 +66,7 @@ export function DashboardClient({ zones }: DashboardClientProps) {
         
         {/* Connection Status Overlay */}
         <div className="absolute top-4 left-4 z-10 pointer-events-none">
-          <Badge variant={isConnected ? "default" : "destructive"} className={isConnected ? "bg-emerald-600" : ""}>
-            {isConnected ? "Engine Connected" : "Connecting..."}
-          </Badge>
+          <ConnectionBadge status={connectionStatus} />
         </div>
       </section>
 
@@ -72,13 +114,15 @@ export function DashboardClient({ zones }: DashboardClientProps) {
           <CardContent className="flex-grow overflow-y-auto p-4">
             {latestEvents.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-zinc-500 space-y-2">
-                <Activity className="h-8 w-8 opacity-20" />
-                <p className="text-sm italic">System Nominal. No events recorded.</p>
+                <div className="relative flex h-3 w-3">
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                </div>
+                <p className="text-sm">No alerts. The yard is running clean.</p>
               </div>
             ) : (
               <div className="space-y-3">
                 {latestEvents.map((evt, i) => (
-                  <div key={`${evt.id}-${i}`} className="p-3 bg-zinc-950/50 rounded-lg border border-zinc-800 flex flex-col space-y-2 hover:bg-zinc-800/50 transition-colors">
+                  <div key={`${evt.id}-${i}`} className="p-3 bg-zinc-950/50 rounded-lg border border-zinc-800 flex flex-col space-y-2 hover:bg-zinc-800/50 transition-colors cursor-default">
                     <div className="flex justify-between items-start">
                       <Badge variant="outline" className={`
                         uppercase tracking-wider text-[10px] font-bold

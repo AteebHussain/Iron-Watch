@@ -8,9 +8,23 @@ import { EventEffect } from "./EventEffect";
 import { ZoneMesh } from "./ZoneMesh";
 import { YardSnapshot } from "@/hooks/useSocket";
 
+// ─── Zone type from Prisma (passed from Server Component) ────
+interface Zone {
+  id: string;
+  name: string;
+  type: string;
+  boundary_json: string;
+  color_hex: string;
+  is_exclusion: boolean;
+  bounds_x_min?: number;
+  bounds_x_max?: number;
+  bounds_y_min?: number;
+  bounds_y_max?: number;
+}
+
 interface SceneBuilderProps {
   snapshotRef: React.MutableRefObject<YardSnapshot | null>;
-  zones: any[]; // Data from DB via props (fetched by Server Component)
+  zones: Zone[];
 }
 
 export function SceneBuilder({ snapshotRef, zones }: SceneBuilderProps) {
@@ -21,7 +35,8 @@ export function SceneBuilder({ snapshotRef, zones }: SceneBuilderProps) {
         <PerspectiveCamera makeDefault position={[30, 40, 30]} fov={50} />
         <OrbitControls 
           target={[0, 0, 0]}
-          maxPolarAngle={Math.PI / 2.2} // Prevent camera from going under ground
+          minPolarAngle={Math.PI / 6}       // Prevent flat top-down
+          maxPolarAngle={Math.PI / 2.2}     // Prevent going under ground
           minDistance={10}
           maxDistance={150}
         />
